@@ -37,7 +37,8 @@ def plot_stacked_bar(x, weight_counts, n_elements, width=0.5, ax=None):
 
 
 # Open file
-filename = 'F:\\Barnes Maze - Mestrad\\Resultados DLC\\Final_results.h5'
+filename = "E:\\Barnes Maze - Mestrad\\Resultados DLC\\Final_results.h5"
+save_results = "E:\\Barnes Maze - Mestrad\\Resultados DLC\\"
 trial_info = pd.read_hdf(filename, key='trial_info')  
 
 
@@ -103,6 +104,7 @@ plt.ylabel("Latency")
 plt.title("Average Latency for each Day")
 
 plt.tight_layout()
+plt.savefig(save_results+"Average_latency.svg")
 
 
 ################################### 3 - Average speed for each trial throughout time
@@ -166,6 +168,8 @@ plt.ylim((np.min(speed_day_av)-np.std(speed_day_av), np.max(speed_day_av)+np.std
 plt.xlabel("Days")
 plt.ylabel("Speed cm/s")
 plt.title("Average Speed for each Day")
+plt.savefig(save_results+"Average_Speed.svg")
+
 
 plt.tight_layout()
 
@@ -261,6 +265,8 @@ plt.title("Number of Errors for each Day")
 plt.legend()
 
 plt.tight_layout()
+plt.savefig(save_results+"Average_Errors.svg")
+
 
 
 ################################### 7 - Average distance for each trial throughout time
@@ -326,6 +332,8 @@ plt.ylabel("Distance cm")
 plt.title("Average Distance for each Day")
 
 plt.tight_layout()
+plt.savefig(save_results+"Average_Distance.svg")
+
 
 
 ################################### 9 - Strategy used for each trial throughout time
@@ -403,4 +411,37 @@ axes[1].set_ylabel("% Strategy used")
 #axes[1].set_title("Strategy use by Day")
 
 plt.tight_layout()
+plt.savefig(save_results+"Average_Strategy.svg")
 
+
+## Get the animals that used mainly the spatial oriented strategy
+unique_animals = trial_info[['Box', 'ID']].drop_duplicates()
+animal_strategy_trial = np.zeros((unique_animals.shape[0],16))
+animal_strategy_day = np.zeros((unique_animals.shape[0],4))
+## Get the number of strategies by animal /trial and /day
+unique_animals = trial_info[['Box', 'ID', 'Group']].drop_duplicates()
+for ii in range(unique_animals.shape[0]):
+    box = unique_animals.iloc[ii].loc['Box']
+    Id = unique_animals.iloc[ii].loc['ID']
+    group = unique_animals.iloc[ii].loc['Group']
+    
+    n = sum(trial_info.loc[(trial_info['Group'] == '3') & (trial_info['Box'] == box) & (trial_info['ID'] == Id),'Strategy']=='spatial')
+
+    print(box+'_'+Id+'_'+group+': '+str(n))
+
+print('Day 1')
+for ii in range(unique_animals.shape[0]):
+    box = unique_animals.iloc[ii].loc['Box']
+    Id = unique_animals.iloc[ii].loc['ID']
+    group = unique_animals.iloc[ii].loc['Group']
+    
+    n = sum(trial_info.loc[(trial_info['Day'] == '1') & (trial_info['Box'] == box) & (trial_info['ID'] == Id),'Strategy']=='spatial')
+
+    print(box+'_'+Id+'_'+group+': '+str(n))
+
+
+    # strategy = trial_info.loc[(trial_info["Day"] == str(ii)) & (trial_info["Trial"] == str(jj)),['Strategy']].to_numpy()
+    # # Get the number of times (proportion) of each strategy for each one of the day-trial combination (16)
+    # spatial_trial_av[count] = len(np.where(strategy=='spatial')[0])/len(strategy)
+    # serial_trial_av[count] = len(np.where(strategy=='serial')[0])/len(strategy)
+    # random_trial_av[count] = len(np.where(strategy=='random')[0])/len(strategy)

@@ -28,10 +28,15 @@ import os
 import json
 
 # SET parameter values
-conf_threshold = 0.95
+conf_threshold = 0.95                           # Confidence threshold for x,y coordinates for each bp/frame
 std_threshold = 0.5
 fps = 30
 prev_hole_position = np.empty((12,2))
+latency_mode = 'escape' # 'escape' or 'find'   
+trial_duration=3 # Trial duration in minutes
+prob=False # Bool (if it is a prob trial or not)
+target=7
+target_quadrant=3
 
 # CREATE A DATA FRAME TO ORGANIZE THE RSULTS FOR ALL THE TRIALS
 trial_info = pd.DataFrame(columns=['Box','ID','Group','Day','Trial','Beginning', 'End', 'Latency', 'P_error', 'S_error',
@@ -55,8 +60,7 @@ for it in range(len(filename)):
     maze_info_pixel = maze_recreation(position_each_hole, 10, 5, 60)
     # Recreate the maze quadrants
     quadrant_dict, quadrant_dict_list = maze_quadrants(maze_info_pixel, [], centroid_coords, position_each_hole, plot_frame=False, title='Nose', show=True, recreate_maze=False)
-    
-    
+        
     # STEP 3.1 --> GET THE NOSE COORD AND PROCESS IT
     # Get the coordinates for a specific body part
     nose_coord = df.xs('nose', level='bodyparts', axis=1).to_numpy()  
@@ -67,21 +71,16 @@ for it in range(len(filename)):
     
     # STEP 3.2 --> GET THE TRIAL BEGINNING, END AND LATENCY
     # Define the trial beginning and end based on confidence interval
-    body_part_matrix_nose, beg, end = get_trial_beginning_end_all_bp(body_part_matrix_nose, df, 0.95)
+    body_part_matrix_nose, beg, end = get_trial_beginning_end_all_bp(body_part_matrix_nose, df, 0.95, max_duration_trial=trial_duration)
     # OLD FUNCTION -->> body_part_matrix_nose = get_trial_beginning_end(body_part_matrix_nose, 0.95)
-    # Get trial latency
-    latency = get_trial_latency(body_part_matrix_nose, fps=30)      
-    
+       
     # STEP 4 --> CREATE A CODE FOR THE NOSE POSITION ON MAZE
     # Get the nose position on the maze
     bp_pos_on_maze = get_bp_position_on_maze(body_part_matrix_nose, position_each_hole, maze_info_pixel, centroid_coords)
     # Filter the nose position
+    # bp_pos_on_maze_filtered = bp_pos_on_maze
     bp_pos_on_maze_filtered = filter_bp_pos_on_maze(bp_pos_on_maze, method_used='complete', win=fps)
-    
-    # STEP 5 --> GET PRIMARY AND SECUNDARY ERRORS and STRATEGY USED
-    p_errors, s_errors = get_p_s_errors(bp_pos_on_maze_filtered,target=1)[0:2]
-    strategy = get_the_strategy(bp_pos_on_maze_filtered, target=1)
-    
+        
     # STEP 6.1 --> GET THE BODY CENTRE COORD AND PROCESS IT
     # Get the coordinates for a specific body part
     body_centre_coord = df.xs('body_centre', level='bodyparts', axis=1).to_numpy()  
@@ -91,6 +90,18 @@ for it in range(len(filename)):
     # UPDATE the beginning and end for the body_centre as well
     body_part_matrix_body_centre, beg, end = get_trial_beginning_end_all_bp(body_part_matrix_body_centre, df, 0.95)
     
+    # Get trial latency
+    if latency_mode == 'escape':
+        latency = get_trial_latency(body_part_matrix_nose, fps=30)
+    else:
+        latency, body_part_matrix_nose, body_part_matrix_body_centre, bp_pos_on_maze, bp_pos_on_maze_filtered\
+            = get_trial_latency_to_find_scape(body_part_matrix_nose, body_part_matrix_body_centre, bp_pos_on_maze, bp_pos_on_maze_filtered, time_thresh=3, fps=fps, scape_hole=1)
+        
+    
+    # STEP 5 --> GET PRIMARY AND SECUNDARY ERRORS and STRATEGY USED
+    p_errors, s_errors = get_p_s_errors(bp_pos_on_maze_filtered,target=target)[0:2]
+    strategy = get_the_strategy(bp_pos_on_maze_filtered, target=target)
+    
     # STEP 7 --> GET THE TOTAL DISTANCE, INSTANT SPEED AND AVERAGE SPEED
     total_distance = get_distance(body_part_matrix_body_centre, maze_info_pixel)[1]
     inst_speed, inst_speed_entire, av_speed = get_inst_speed(body_part_matrix_body_centre, maze_info_pixel, time_win=10, fps=30)
@@ -99,7 +110,7 @@ for it in range(len(filename)):
     bp_pos_on_quadrant = get_bp_position_on_quadrant(body_part_matrix_body_centre, quadrant_dict, fps=30)
     
     # STEP 7.2 --> RATIO (TIME ON TARGET/ TIME ON OTHER QUADRANTS)
-    ratio_target_others, time_on_each_quadrant = get_time_on_target_quadrant(bp_pos_on_quadrant, target=1, fps=30)    
+    ratio_target_others, time_on_each_quadrant, ratio_target_minute = get_time_on_target_quadrant(bp_pos_on_quadrant, target=target_quadrant, fps=30, prob=prob)    
     
     # STEP 8 --> ORGANIZE DATA SINCE NOT EVERY SINGLE THING IS BAGUNÇA
     # Get the file name (only the base name)
@@ -111,9 +122,9 @@ for it in range(len(filename)):
     trial = basename[13]
     
     # Create a data frame to append to the final dataframe
-    data = pd.DataFrame([[box, ID, group, day, trial, beg, end, latency, p_errors, s_errors, strategy, total_distance, av_speed, ratio_target_others]], 
+    data = pd.DataFrame([[box, ID, group, day, trial, beg, end, latency, p_errors, s_errors, strategy, total_distance, av_speed, ratio_target_others, ratio_target_minute]], 
                         columns = ['Box','ID','Group','Day','Trial','Beginning', 'End', 'Latency', 'P_error', 'S_error',
-                                       'Strategy', 'Distance', 'Av_speed','Time_on_target']) 
+                                       'Strategy', 'Distance', 'Av_speed','Time_on_target','Time_on_target_minute']) 
     # makes index continuous
     trial_info = pd.concat([trial_info, data], ignore_index = True)  
     
@@ -130,7 +141,8 @@ for it in range(len(filename)):
                               'total_distance':total_distance.tolist(),
                               'inst_speed':inst_speed.tolist(),
                               'inst_speed_entire':inst_speed_entire.tolist(),
-                              'time_on_each_quadrant':time_on_each_quadrant.tolist()})
+                              'time_on_each_quadrant':time_on_each_quadrant.tolist(),
+                              'ratio_target_minute':ratio_target_minute.tolist()})
     
     # Get the name to save a file
     save_filename = os.path.dirname(filename[it])+'/'+''.join(basename[0:14])+'.txt'

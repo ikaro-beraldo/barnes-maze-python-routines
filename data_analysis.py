@@ -3,7 +3,9 @@
 from minors_functions import *
 from matplotlib import pyplot as plt
 import numpy as np
+import sympy as sp
 from color_functions import *
+from plot_functions import maze_recreation_plot_OLR
 
 # Extract the animal position relative to the maze holes
 def get_bp_position_on_maze(body_part_matrix, position_each_hole, maze_info_pixel, centroid_coords, fps=30):
@@ -135,6 +137,50 @@ def get_trial_latency(body_part_matrix, fps=30):
     
     return latency
 
+# Function to get the trial latency regarding the time when the animal finds the scape hole
+def get_trial_latency_to_find_scape(body_part_matrix_nose, body_part_matrix_body_centre, bp_pos_on_maze, bp_pos_on_maze_filtered, time_thresh=3, fps=30, scape_hole=1):
+    # time_thresh is the time in seconds that the animal must explore the scape_hole 
+    
+    # Get the frames which the animal explored the escape hole
+    a = np.zeros(len(bp_pos_on_maze),)
+    a[bp_pos_on_maze==scape_hole] = 1
+    # Diff of index 
+    dif = np.diff(a)
+    
+    # Beginning of exploration
+    b = np.where(dif==1)[0]+1
+    # End of exploration
+    e = np.where(dif==-1)[0]
+    
+    # if in the first frame the animal is exploring the scape hole (almost impossible... but who knows)
+    if a[0] == 1:
+        # Beginning of exploration
+        b = np.hstack((0, b))
+    # if in the last frame the animal is exploring the scape hole
+    if a[-1] == 1:
+        e = np.hstack((e, len(bp_pos_on_maze)))
+    
+    # Get which exploration event lasted more than the threshold
+    exp_bool = (e-b)/fps >= time_thresh
+    # In case some of the explorations lasted more than the threshold
+    if np.any(exp_bool):
+        first_exp = np.where(exp_bool==True)[0]
+        # The latency is the frame which the animal started to explore + the time_threshold
+        latency_frame = int(b[first_exp][0] + time_thresh*fps)
+        latency = latency_frame/fps
+    else:   # If none of the explorations lasted more than the threshold, compute the scape latency
+        latency = get_trial_latency(body_part_matrix_nose, fps=fps)
+        latency_frame = int(latency*fps)
+        
+    # Fix the previous vectors (bp_matrix, bp_pos_on_maze, etc)
+    body_part_matrix_nose = body_part_matrix_nose[:latency_frame+1]
+    body_part_matrix_body_centre = body_part_matrix_body_centre[:latency_frame+1]
+    bp_pos_on_maze = bp_pos_on_maze[:latency_frame+1]
+    bp_pos_on_maze_filtered = bp_pos_on_maze_filtered[:latency_frame+1]
+    
+    return latency, body_part_matrix_nose, body_part_matrix_body_centre, bp_pos_on_maze, bp_pos_on_maze_filtered
+
+
 # Extract the animal position relative to the maze quadrants
 def get_bp_position_on_quadrant(body_part_matrix, quadrant_dict, fps=30):
     
@@ -161,8 +207,26 @@ def get_bp_position_on_quadrant(body_part_matrix, quadrant_dict, fps=30):
 
     return bp_pos_on_quadrant
 
+# Extract the animal position relative to the maze quadrants
+def get_bp_position_on_quadrant_OLR(body_part_matrix, quadrant_dict, fps=30):
+    
+    xy = body_part_matrix[:,0:2]  # x,y coords       
+    # Create a body part position vector (coded as 1 to 4 for each one of the quadrants)
+    bp_pos_on_quadrant = np.zeros(xy.shape[0],)
+    
+    # Loop for each quadrant
+    for ii in range(len(quadrant_dict)):
+        # Check if the body part is positioned on the specific
+        rectangle = quadrant_dict['quadrant'+str(ii+1)]      
+        # Check whether each point is inside the quadrant currently being analyzed
+        results_bool = are_points_inside_polygon(rectangle, xy)        
+        # Insert the index regarding the animal's body part on quadrant      
+        bp_pos_on_quadrant[results_bool] = ii + 1 # Insert the index regarding the role (+1, since python indexing is quite differente from what I've learned in MATLAB)
+
+    return bp_pos_on_quadrant
+
 # Get the time spent on each quadrant and calculate the ratio time on the target quadrant / time on the other quadrants
-def get_time_on_target_quadrant(bp_pos_on_quadrant, target=1, fps=30):
+def get_time_on_target_quadrant(bp_pos_on_quadrant, target=1, fps=30, prob=False):
     # Create an zeros array
     time_on_each_quadrant = np.zeros(4,)
     # Get the time on each quadrant
@@ -174,7 +238,196 @@ def get_time_on_target_quadrant(bp_pos_on_quadrant, target=1, fps=30):
     # Calculate the ratio target/others
     ratio_target_others = time_on_each_quadrant[target-1]/np.sum(time_on_each_quadrant)
     
-    return ratio_target_others, time_on_each_quadrant
+    # Just pre-allocate
+    ratio_target_minute = np.zeros((2,))
+    
+    # Also calculate the time by minute of trial  
+    if prob is True:
+        a = bp_pos_on_quadrant[0:60*fps-1]
+        ratio_target_minute[0] = np.count_nonzero(a == target) / (60*fps)
+        
+        b = bp_pos_on_quadrant[60*fps:120*fps]
+        ratio_target_minute[1] = np.count_nonzero(b == target) / (60*fps)
+    
+    return ratio_target_others, time_on_each_quadrant, ratio_target_minute
+
+def get_head_angle(body_part_matrix_nose,body_part_matrix_head):
+    # Create a dict
+    head_angle = dict({'slope': '', 'degree': ''})
+    
+    nose = body_part_matrix_nose[:,0:2] # Get the nose x and y coords
+    head = body_part_matrix_head[:,0:2] # Get the head x and y coords
+    
+    # Compute the head angle as the line slope or degree
+    head_angle['slope'] = (nose[:,1] - head[:,1])/(nose[:,0] - head[:,0])
+    head_angle['degree'] = np.degrees(np.arctan(head_angle['slope']))
+    
+    return head_angle
+
+# Extract the animal position relative to the maze holes
+def get_bp_position_on_maze_OLR(body_part_matrix_nose, maze_info_pixel, centroid_coords, position_each_vertex, fps=30):
+    
+    # Nose coords
+    x = body_part_matrix_nose[:,0]  # x coords
+    y = body_part_matrix_nose[:,1]  # y coords
+       
+    # Create a body part position vector (coded as 1 to 12 for holes, 0 for the maze and -1 when outside the maze)
+    bp_pos_on_maze = np.zeros((len(x),))
+        
+    # Outer Ellipse Obj 1
+    # Check if the body part is inside the specific obj ellipse
+    mask = is_point_inside_ellipse(x, y, maze_info_pixel['emp_radius_pixel_outer'][0], maze_info_pixel['emp_radius_pixel_outer'][1], maze_info_pixel['av_g_1'][0], maze_info_pixel['av_g_1'][1], sp.rad(maze_info_pixel['angle_g_1']))
+    bp_pos_on_maze[mask] = 1.5  # Insert the index regarding the obj (+1)
+
+    # Inner Ellipse Obj 1
+    mask = is_point_inside_ellipse(x, y, maze_info_pixel['emp_radius_pixel'][0], maze_info_pixel['emp_radius_pixel'][1], maze_info_pixel['av_g_1'][0], maze_info_pixel['av_g_1'][1], sp.rad(maze_info_pixel['angle_g_1']))
+    bp_pos_on_maze[mask] = 1  # Insert the index regarding the obj (+1)
+
+    # Outer Ellipse Obj 2
+    # Check if the body part is inside the specific obj ellipse
+    mask = is_point_inside_ellipse(x, y, maze_info_pixel['emp_radius_pixel_outer'][0], maze_info_pixel['emp_radius_pixel_outer'][1], maze_info_pixel['av_g_2'][0], maze_info_pixel['av_g_2'][1], sp.rad(maze_info_pixel['angle_g_2']))
+    bp_pos_on_maze[mask] = 2.5  # Insert the index regarding the obj (+1)
+
+    # Inner Ellipse Obj 2
+    mask = is_point_inside_ellipse(x, y, maze_info_pixel['emp_radius_pixel'][0], maze_info_pixel['emp_radius_pixel'][1], maze_info_pixel['av_g_2'][0], maze_info_pixel['av_g_2'][1], sp.rad(maze_info_pixel['angle_g_2']))
+    bp_pos_on_maze[mask] = 2  # Insert the index regarding the obj (+1)
+            
+        
+    # video_file = "F:\\Barnes Maze - Mestrad\\OLR-RAFA\\T5 EvocacaoDLC_resnet50_OLRJun15shuffle2_1000000_labeled.mp4"
+    
+    # for i in range(bp_pos_on_maze.size):
+    #     idx = i
+    #     classification = bp_pos_on_maze[i]
+    #     fig, axes = plt.subplots()
+    #     maze_recreation_plot_OLR(axes, centroid_coords, position_each_vertex, maze_info_pixel, video_file=video_file, video_frame=idx, show=False, invert=False)
+    #     plot_ellipse(axes, maze_info_pixel['emp_radius_pixel_outer'][0], maze_info_pixel['emp_radius_pixel_outer'][1], maze_info_pixel['av_g_1'][0], maze_info_pixel['av_g_1'][1], sp.rad(maze_info_pixel['angle_g_1']))
+    #     axes.plot(x[i],y[i],'.', markersize=5)
+    #     axes.invert_yaxis()
+    #     print(classification)
+    #     plt.show()
     
     
+    return bp_pos_on_maze
+
+def plot_ellipse(axes, a, b, h, k, A):
+    # Convert parameters to regular Python floats
+    a, b, h, k, A = float(a), float(b), float(h), float(k), float(A)
+
+    # Create a NumPy array of angles for plotting the ellipse
+    theta = np.linspace(0, 2 * np.pi, 100)
+
+    # Parametric equations of the ellipse
+    x_ellipse = h + a * np.cos(theta) * np.cos(A) - b * np.sin(theta) * np.sin(A)
+    y_ellipse = k + a * np.cos(theta) * np.sin(A) + b * np.sin(theta) * np.cos(A)
+
+    # Plot the ellipse and the line
+    axes.plot(x_ellipse, y_ellipse, label='Ellipse')
+    
+    # plt.xlabel('x')
+    # plt.ylabel('y')
+    # plt.title('Ellipse and Line Intersection')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.axis('equal')
+    # plt.show()
+
+def plot_ellipse_and_line(axes, a, b, h, k, A, line_a, line_b, intersections):
+    # Convert parameters to regular Python floats
+    a, b, h, k, A = float(a), float(b), float(h), float(k), float(A)
+
+    # Create a NumPy array of angles for plotting the ellipse
+    theta = np.linspace(0, 2 * np.pi, 100)
+
+    # Parametric equations of the ellipse
+    x_ellipse = h + a * np.cos(theta) * np.cos(A) - b * np.sin(theta) * np.sin(A)
+    y_ellipse = k + a * np.cos(theta) * np.sin(A) + b * np.sin(theta) * np.cos(A)
+
+    # Parametric equations of the line
+    x_line = np.linspace(min(x_ellipse), max(x_ellipse), 100)
+    y_line = line_a * x_line + line_b
+
+    # Plot the ellipse and the line
+    axes.plot(x_ellipse, y_ellipse, label='Ellipse')
+    axes.plot(x_line, y_line, label='Line')
+
+    # Plot the intersection points
+    if intersections.size > 0:
+        axes.scatter(intersections[:, 0], intersections[:, 1], color='red', label='Intersections')
+
+    # plt.xlabel('x')
+    # plt.ylabel('y')
+    # plt.title('Ellipse and Line Intersection')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.axis('equal')
+    #plt.show()
+    
+# Function to define which object the animal is exploring throughout time
+# Get the HEAD y to define b for a linear equation
+def get_obj_exploration(bp_pos_on_maze,head_angle, maze_info_pixel, body_part_matrix_nose, body_part_matrix_head, centroid_coords, position_each_vertex, fps=30):
+    # Iniate the final obj_exploration variable
+    obj_exploration = np.zeros((len(bp_pos_on_maze),))
+    
+    # If the animal nose is already on the inner ellipses (on the object) consider it as exploration
+    obj_exploration[bp_pos_on_maze==1] = 1
+    obj_exploration[bp_pos_on_maze==2] = 2
+    
+    # Check for the exploration on the outer area
+    # Find when the animal nose is in the object outer area
+    # Obj 1
+    mask_1 = np.array(np.where(bp_pos_on_maze == 1.5))
+    
+    video_file = "F:\\Barnes Maze - Mestrad\\OLR-RAFA\\T6_Evocacao_1DLC_resnet50_OLRJun15shuffle2_1000000_labeled.mp4"
+    
+    for i in range(mask_1.size):
+        idx = mask_1[0,i]
+        points = [tuple(body_part_matrix_head[idx,0:2]), tuple(body_part_matrix_nose[idx,0:2])]
+        m, b = solve_m_c_linear_equation(points)
+        intersections = find_line_ellipse_intersections(maze_info_pixel['emp_radius_pixel'][0], maze_info_pixel['emp_radius_pixel'][1], maze_info_pixel['av_g_1'][0], maze_info_pixel['av_g_1'][1], np.radians(maze_info_pixel['angle_g_1']), m, b)
+        # fig, axes = plt.subplots()
+        # maze_recreation_plot_OLR(axes, centroid_coords, position_each_vertex, maze_info_pixel, video_file=video_file, video_frame=idx, show=False, plot_frame=False)
+        # plot_ellipse_and_line(axes, maze_info_pixel['emp_radius_pixel_outer'][0], maze_info_pixel['emp_radius_pixel_outer'][1], maze_info_pixel['av_g_1'][0], maze_info_pixel['av_g_1'][1], sp.rad(maze_info_pixel['angle_g_1']), m, b, intersections)
+        # x = np.array([body_part_matrix_nose[idx,0], body_part_matrix_head[idx,0]])
+        # y = np.array([body_part_matrix_nose[idx,1], body_part_matrix_head[idx,1]])
+        # axes.plot(x,y)
+        # plt.show()
+        
+        # Check if any intersection was found 
+        if intersections.size > 0:
+            obj_exploration[idx] = 1
+            
+            
+    # Obj 2
+    mask_2 = np.array(np.where(bp_pos_on_maze == 2.5))
+    
+    video_file = "F:\\Barnes Maze - Mestrad\\OLR-RAFA\\T6_Evocacao_1DLC_resnet50_OLRJun15shuffle2_1000000_labeled.mp4"
+    
+    for i in range(mask_2.size):
+        idx = mask_2[0,i]
+        points = [tuple(body_part_matrix_head[idx,0:2]), tuple(body_part_matrix_nose[idx,0:2])]
+        m, b = solve_m_c_linear_equation(points)
+        intersections = find_line_ellipse_intersections(maze_info_pixel['emp_radius_pixel'][0], maze_info_pixel['emp_radius_pixel'][1], maze_info_pixel['av_g_2'][0], maze_info_pixel['av_g_2'][1], np.radians(maze_info_pixel['angle_g_2']), m, b)
+        # fig, axes = plt.subplots()
+        # maze_recreation_plot_OLR(axes, centroid_coords, position_each_vertex, maze_info_pixel, video_file=video_file, video_frame=idx, show=False, plot_frame=False)
+        # plot_ellipse_and_line(axes, maze_info_pixel['emp_radius_pixel_outer'][0], maze_info_pixel['emp_radius_pixel_outer'][1], maze_info_pixel['av_g_2'][0], maze_info_pixel['av_g_2'][1], sp.rad(maze_info_pixel['angle_g_2']), m, b, intersections)
+        # x = np.array([body_part_matrix_nose[idx,0], body_part_matrix_head[idx,0]])
+        # y = np.array([body_part_matrix_nose[idx,1], body_part_matrix_head[idx,1]])
+        # axes.plot(x,y)
+        # plt.show()
+        
+        # Check if any intersection was found 
+        if intersections.size > 0:
+            obj_exploration[idx] = 2
+            
+    # Compute important parameters 
+    obj_exp_parameters = dict()
+    obj_exp_parameters['time_obj_1'] = np.array(np.where(obj_exploration==1)).shape[1]/fps
+    obj_exp_parameters['time_obj_2'] = np.array(np.where(obj_exploration==2)).shape[1]/fps
+    obj_exp_parameters['time_objs'] =  obj_exp_parameters['time_obj_1'] +  obj_exp_parameters['time_obj_2']
+    obj_exp_parameters['ratio_1_2'] =  obj_exp_parameters['time_obj_1'] / obj_exp_parameters['time_obj_2']
+    obj_exp_parameters['ratio_2_1'] =  obj_exp_parameters['time_obj_2'] / obj_exp_parameters['time_obj_1']
+    obj_exp_parameters['ratio_1_total'] =  obj_exp_parameters['time_obj_1'] / obj_exp_parameters['time_objs']
+    obj_exp_parameters['ratio_2_total'] =  obj_exp_parameters['time_obj_2'] / obj_exp_parameters['time_objs']
+
+    return obj_exploration, obj_exp_parameters
     

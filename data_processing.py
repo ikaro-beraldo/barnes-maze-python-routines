@@ -30,7 +30,8 @@ def fix_frames_confidence(body_part_matrix,conf_threshold):
             y_fixed[exc_frames[i]] = body_part_matrix[exc_frames[i]-1,1]
     
     # Return a new bodypart matrix (x,y,conf)
-    return np.transpose(np.asarray((x_fixed, y_fixed, body_part_matrix[:,2])))
+    #return np.transpose(np.asarray((x_fixed, y_fixed, body_part_matrix[:,2])))
+    return body_part_matrix
 
 def fix_frames_diff(body_part_matrix,std_threshold):
     ## Get the frames where coordinates have > 0.5*zscore(abs(diff))
@@ -111,7 +112,7 @@ def filter_bp_pos_on_maze(bp_pos_on_maze, method_used='complete', win=3, mov_sec
         # Create the return value
         bp_pos_on_maze_filtered = bp_pos_on_maze
         # Loop for each possible place in the maze
-        for i in np.linspace(12,-1,14):
+        for i in np.linspace(12,1,12):
             a = np.transpose(np.array(np.where(bp_pos_on_maze == i)))
             #print(a)
             b = np.transpose(np.array(np.diff(a.T)))
@@ -200,3 +201,53 @@ def get_trial_beginning_end(body_part_matrix, conf_threshold, fps=30, max_durati
     #print('n epochs exc: ' + str(mask[0]-1 + np.shape(body_part_matrix)[0]-mask[-1]+1))
     
     return body_part_matrix_rec
+
+# Function to fix camera shaking during trial recording
+def fix_camera_shaking(body_part_matrix,reference_point_matrix, conf_threshold=0.95):
+    # Take the last video frame and use the vertices (x,y) references to track any camera movements
+    def get_camera_shaking(reference_point_matrix, conf_threshold):
+        # Get a confidence mask based on the confidence threshold
+        confidence_mask = np.array(np.where(reference_point_matrix[:,2] >= conf_threshold))[0,:]
+        selected_frame = confidence_mask[-1]    # Select the last frame above the confidence threshold
+        
+        reference_point_x = reference_point_matrix[selected_frame,0]    # X value
+        reference_point_y = reference_point_matrix[selected_frame,1]    # Y value
+        
+        x_diff = reference_point_matrix[:,0] - reference_point_x
+        y_diff = reference_point_matrix[:,1] - reference_point_y
+        
+        return reference_point_x, reference_point_y
+    
+    # Get camera shaking differences on x and y axis
+    x_diff, y_diff = get_camera_shaking(reference_point_matrix, conf_threshold)
+    
+    new_x = body_part_matrix[:,0] - x_diff
+    new_y = body_part_matrix[:,1] - y_diff
+    new_body_part_matrix = np.vstack((new_x, new_y, body_part_matrix[:,2])).T   # Final fixed body_part_matrix
+    
+    return new_body_part_matrix
+
+
+# Fix camera shaking for all the points (nose, head, etc)
+def df_fix_camera_shaking(df,bp_reference_str='v_1'):
+    
+    model = df.columns.get_level_values(0)  # First idx (model)
+    bps = df.columns.get_level_values(1)    # Second idx (body part) 
+    
+    # Get unique bp values
+    indexes = np.unique(bps, return_index=True)[1]  # Get unique
+    bps = bps[np.arange(0, len(bps), 3)]            
+    
+    # Get the reference matrix
+    reference_point_matrix = df.xs(bp_reference_str, level='bodyparts', axis=1).to_numpy()
+    
+    # Loop for each body part
+    for ii in range(len(bps)):  
+        body_part_matrix = df.xs(bps[ii], level='bodyparts', axis=1).to_numpy()  # Get confidence interval for each pb
+        # Fixed body part matrix
+        new_body_part_matrix = fix_camera_shaking(body_part_matrix,reference_point_matrix, conf_threshold=0.95)
+        # Recreate the df with fixed body part matrix
+        df[model[0]][bps[ii]] = new_body_part_matrix
+    
+    # Return fixed df
+    return df

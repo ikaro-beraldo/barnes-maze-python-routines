@@ -1,6 +1,10 @@
 # Set of functions regarding minor calculations
 
 import math
+import numpy as np
+import time
+import sympy as sp
+
 
 def isInside(circle_x, circle_y, rad, x, y):
      
@@ -109,6 +113,76 @@ def isInside_triangle_dif(triangle_matrix, x, y):
     A3 = area (x1, y1, x2, y2, x, y)
     
     return abs((A1 + A2 + A3)-A)
-     
-  
+
+def is_point_inside_ellipse(x, y, a, b, h, k, A):
+    
+    beg = time.time()
+    # Convert parameters to regular Python floats
+    a, b, h, k, A = float(a), float(b), float(h), float(k), float(A)
+
+    # Translate and rotate the points to the ellipse's coordinate system
+    x_translated = (x - h) * np.cos(A) + (y - k) * np.sin(A)
+    y_translated = (x - h) * np.sin(A) - (y - k) * np.cos(A)
+
+    # Check if the points are inside the ellipse (inequality check)
+    is_inside = (x_translated / a)**2 + (y_translated / b)**2 < 1
+
+    print(time.time()-beg)
+    return is_inside
+
+from scipy.optimize import fsolve
+
+def ellipse_equation_x(x, y, a, b, h, k, A):
+    cos_A = np.cos(A)
+    sin_A = np.sin(A)
+    return ((x - h) * cos_A + (y - k) * sin_A)**2 / a**2 + ((x - h) * sin_A - (y - k) * cos_A)**2 / b**2 - 1
+
+def ellipse_equation_y(y, x, a, b, h, k, A):
+    cos_A = np.cos(A)
+    sin_A = np.sin(A)
+    return ((x - h) * cos_A + (y - k) * sin_A)**2 / a**2 + ((x - h) * sin_A - (y - k) * cos_A)**2 / b**2 - 1
+
+def find_line_ellipse_intersections(a, b, h, k, A, line_a, line_b, num_points=5):
+    line_x = np.linspace(h - a, h + a, num_points)
+    line_y = line_a * line_x + line_b
+
+    intersection_points = []
+    for x_val, y_val in zip(line_x, line_y):
+        x_intersections = fsolve(ellipse_equation_x, x_val, args=(y_val, a, b, h, k, A))
+        y_intersections = fsolve(ellipse_equation_y, y_val, args=(x_val, a, b, h, k, A))
+        x_valid = np.all(np.abs(ellipse_equation_x(x_intersections, y_val, a, b, h, k, A)) < 1e-6)
+        y_valid = np.all(np.abs(ellipse_equation_y(y_intersections, x_val, a, b, h, k, A)) < 1e-6)
+        if x_valid and y_valid:
+            intersection_points.append((x_intersections[0], y_intersections[0]))
+
+    return np.array(intersection_points)
+
+from numpy import ones,vstack
+from numpy.linalg import lstsq
+
+def solve_m_c_linear_equation(points):
+    #points = [(1,5),(3,4)]
+    x_coords, y_coords = zip(*points)
+    A = vstack([x_coords,ones(len(x_coords))]).T
+    m, c = lstsq(A, y_coords)[0]
+    
+    return m, c        
+
+
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
+
+def are_points_inside_polygon(polygon_points, points_to_check):
+    polygon = Polygon(polygon_points)
+    results = [polygon.contains(Point(x, y)) for x, y in points_to_check]
+    return results
+
+# Example usage
+polygon_points = np.asarray([(0, 0), (0, 1), (1, 1), (1, 0)])
+points_to_check = np.asarray([(0.5, 0.5), (0.2, 0.2), (1.8, 0.8)])
+
+results = are_points_inside_polygon(polygon_points, points_to_check)
+print(results)  # Output: [True, True, False]
+
+      
  
