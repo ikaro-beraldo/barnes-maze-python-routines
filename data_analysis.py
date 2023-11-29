@@ -34,27 +34,91 @@ def get_bp_position_on_maze(body_part_matrix, position_each_hole, maze_info_pixe
     
     return bp_pos_on_maze
 
+def get_sequence_and_duration(arr):
+    # Find the indices where the array changes
+    change_indices = np.where(np.diff(arr) != 0)[0] + 1
+
+    # Split the array at the change indices to get consecutive repetitions
+    sequences = np.split(arr, change_indices)
+
+    # Find unique elements and their counts in each sequence
+    sequences_info = [(np.unique(seq), np.diff(np.where(np.concatenate(([True], seq[:-1] != seq[1:], [True])))[0])) for seq in sequences]
+
+    unique_elements = np.zeros((len(sequences_info),))  # Values array
+    counts = np.zeros((len(sequences_info),))           # Counts array
+    # Unpack the results
+    i = 0;
+    for elem in sequences_info:
+        unique_elements[i], counts[i] = elem[0], elem[1]
+        i += 1
+
+    return np.array(unique_elements), np.array(counts)
+
 # Extract the number of primary errors on Barnes Maze (default target hole = 1)
-def get_p_s_errors(bp_pos_on_maze,target=1):
+def get_p_s_errors(bp_pos_on_maze,target=1, exp_min_time=1, fps=30):
     # Get the entries and exits from holes
-    entrie_exit = np.array(np.where(np.diff(bp_pos_on_maze) != 0))
+    #entrie_exit = np.array(np.where(np.diff(bp_pos_on_maze) != 0))
+    
+    # Find unique hole exploration and their counts
+    unique_elements, counts = get_sequence_and_duration(bp_pos_on_maze)
     
     # Compute the total number of errors
-    errors = (bp_pos_on_maze[np.array(entrie_exit)+1] != target) & (bp_pos_on_maze[np.array(entrie_exit)+1] != 0) & (bp_pos_on_maze[np.array(entrie_exit)+1] != -1)
+    errors = (unique_elements != target) & (unique_elements != 0) & (unique_elements != -1)
+    
+    # Compute the total number of hole explorations (consider target exploration)
+    exploration = (unique_elements != 0) & (unique_elements != -1)
+    
+    # Compute the total number of errors
+    #errors = (bp_pos_on_maze[np.array(entrie_exit)+1] != target) & (bp_pos_on_maze[np.array(entrie_exit)+1] != 0) & (bp_pos_on_maze[np.array(entrie_exit)+1] != -1)
     
     # Get the number of primary errors
-    p_errors = len(np.unique(bp_pos_on_maze[np.array(entrie_exit[errors])+1]))
+    p_errors = len(np.unique(unique_elements[errors]))
+    
+    # Separate only the hole explorations in which the exploration time is >= exp_min_time (in sec)
+    s_errors = len(np.where(counts[errors]/fps >= exp_min_time)[0]) - p_errors
+    # Check if s_errors will be a negative number
+    if s_errors < 0:
+        s_errors = 0
+        
     # Get the number of secundary
-    s_errors = len(bp_pos_on_maze[np.array(entrie_exit[errors])+1]) - p_errors  
+    #s_errors = len(bp_pos_on_maze[np.array(entrie_exit[errors])+1]) - p_errors  
+    
+    # Create an array with the errors in order of appearence
+    h_errors = np.zeros((len(unique_elements[errors]),))    # Pre-allocate it
+    for i in np.unique(unique_elements[errors]):            # Get all the holes wrongly searched
+        # Get the first primary error holes
+        h_errors[np.where(unique_elements[errors] == i)[0][0]] = i
+        
+        # Get the specific hole errors index (which surpass the minimum exploration time)
+        idx_above_min_time = unique_elements[errors][np.where(counts[errors] / fps >= exp_min_time)] == i
+        # Add the secundary errors to this array
+        h_errors[np.where(counts[errors] / fps >= exp_min_time)[0][idx_above_min_time]] = i
+    
+    # Delete errors which are not primary neither passed the exp_min_time
+    h_errors = np.delete(h_errors, np.where(h_errors == 0))
+    
+    # Create an array with the exploration in order of appearence
+    h_exp = np.zeros((len(unique_elements[exploration]),))    # Pre-allocate it
+    for i in np.unique(unique_elements[exploration]):            # Get all the holes wrongly searched
+        # Get the first primary error holes
+        h_exp[np.where(unique_elements[exploration] == i)[0][0]] = i
+        
+        # Get the specific hole exploration index (which surpass the minimum exploration time)
+        idx_above_min_time = unique_elements[exploration][np.where(counts[exploration] / fps >= exp_min_time)] == i
+        # Add the secundary exploration to this array
+        h_exp[np.where(counts[exploration] / fps >= exp_min_time)[0][idx_above_min_time]] = i
+    
+    # Delete exploration which are not primary neither passed the exp_min_time
+    h_exp = np.delete(h_exp, np.where(h_exp == 0))
     
     # Holes regarding the errors
-    h_errors = bp_pos_on_maze[np.array(entrie_exit[errors])+1]
+    #h_errors = bp_pos_on_maze[np.array(entrie_exit[errors])+1]
     
     # Indices regarding the errors
-    i_errors = np.array(entrie_exit[errors])+1
+    #i_errors = np.array(entrie_exit[errors])+1
     
         
-    return p_errors, s_errors, h_errors, i_errors
+    return p_errors, s_errors, h_errors, h_exp
 
 def get_distance(body_part_matrix, maze_info_pixel):
     # Euclidean distance
@@ -95,9 +159,9 @@ def get_inst_speed(body_part_matrix, maze_info_pixel, time_win=1, fps=30):
         
     
 # Define the strategy used by the animal
-def get_the_strategy(bp_pos_on_maze, target=1):
+def get_the_strategy(bp_pos_on_maze, target=1, exp_min_time=1, fps=30):
     # First get the primary and secundary errors, including the hole numbers
-    p_errors, s_errors, h_errors = get_p_s_errors(bp_pos_on_maze, target)[0:3]
+    p_errors, s_errors, h_errors, h_exp = get_p_s_errors(bp_pos_on_maze, target, exp_min_time=exp_min_time, fps=fps)[0:4]
     
     # If it doesn't fall to any of those conditions, classify the strategy as random
     strategy = 'random'
@@ -105,7 +169,7 @@ def get_the_strategy(bp_pos_on_maze, target=1):
     # Direct/Spatial strategy
     if p_errors + s_errors < 3:
         # Check if holes were whithin 2 from target (only holes with difference 1, 3, 11 and 10)
-        if not(((np.abs(h_errors-target) > 2) & (np.abs(h_errors-target) < 10)).all()):
+        if not(((np.abs(h_errors-target) > 2) & (np.abs(h_errors-target) < 10)).any()):
             strategy = 'spatial'
         elif p_errors + s_errors <= 1: # One error far from the target or 0 errors
             strategy = 'spatial'
@@ -114,12 +178,15 @@ def get_the_strategy(bp_pos_on_maze, target=1):
     
     # (serial/random)
     else:
-        # Add the target role to the end of h_erros if it is serial
-        h_errors = np.append([[h_errors]],[[target]])
-        # Check if at least 75% of the exploration was serial (
-        serial_mask = ((np.abs(np.diff(h_errors)) == 1) | (np.abs(np.diff(h_errors)) == 0) | (np.abs(np.diff(h_errors)) == 11).all())
+        # # Add the target role to the end of h_erros if it is serial
+        # h_errors = np.append([[h_errors]],[[target]])
+        # # Check if at least 75% of the exploration was serial (
+        # serial_mask = ((np.abs(np.diff(h_errors)) == 1) | (np.abs(np.diff(h_errors)) == 0) | (np.abs(np.diff(h_errors)) == 11).all())
         
-        # If 50% of searchs were serial
+        # Check if at least 75% of the exploration was serial (
+        serial_mask = (np.abs(np.diff(h_exp)) == 1) | (np.abs(np.diff(h_exp)) == 0) | (np.abs(np.diff(h_exp)) == 11)
+                
+        # If 75% of searchs were serial
         if np.array(np.where(serial_mask == True)).shape[1] >= len(h_errors)*0.75:
             strategy = 'serial'
         else:

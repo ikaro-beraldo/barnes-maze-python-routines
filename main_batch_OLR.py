@@ -24,20 +24,34 @@ from gif_functions import *
 import os
 import json
 
-def plot_video_obj_exploration(video_file, obj_exploration):
+def plot_video_obj_exploration(body_part_matrix_nose, body_part_matrix_head, df, centroid_coords, position_each_vertex, maze_info_pixel, obj_exploration):
     
-    fig, axs = plt.subplots(1)
+    body_coord = df.xs(bp_names['body'], level='bodyparts', axis=1).to_numpy()  
+    fig, axs = plt.subplots(2)
+    axs[1].plot(obj_exploration)
 
     for i in range(len(obj_exploration)):
-        frame = extract_frame_f_video(video_file[0], video_frame=i, fps=24)
+        axs[0].plot(body_part_matrix_nose[i,0],body_part_matrix_nose[i,1],'.r')
+        axs[0].plot(body_part_matrix_head[i,0],body_part_matrix_head[i,1],'.k')
+        axs[0].plot(body_coord[i,0],body_coord[i,1],'.k')
+        maze_recreation_plot_OLR(axs[0], centroid_coords, position_each_vertex, maze_info_pixel,show=False, plot_frame=False)
+        # Plot the bodyparts
+       
         idx = np.arange(0,i+1)
         print('Obj:'+ str(obj_exploration[i]))
         # axs[1].plot(i, obj_exploration[i],'b.')
-        axs.imshow(frame[99:449, 399:899, :]) 
+        # axs.imshow(frame[99:449, 399:899, :]) 
         plt.draw()
-        plt.pause(0.00000001)
+               
+        plot_ball = axs[1].plot(i, obj_exploration[i],'r.')
+        plot_ball = plot_ball.pop(0)
+        
+        # You can add any other plots or visualizations here.
+    
+        plt.pause(0.001)  # Pause for a short time to display the frame
+        plot_ball.remove()
         # axs[1].cla()
-        axs.cla()
+        axs[0].cla()
 
 def plot_video_obj_exploration_grab(video_file, obj_exploration):
 
@@ -81,8 +95,9 @@ def plot_video_obj_exploration_grab(video_file, obj_exploration):
     
         # Plot the video frame
         ax1.clear()
-        ax1.imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)[99:449, 399:899, :])  # Convert BGR to RGB
-    
+        ax1.imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB
+        # ax1.imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)[99:449, 399:899, :])  # Convert BGR to RGB
+
         # Create additional plots on the second subplot (ax2)
         # idx = np.arange(0,i+1)
         print('Obj:'+ str(obj_exploration[i]))
@@ -102,14 +117,55 @@ def plot_video_obj_exploration_grab(video_file, obj_exploration):
     # Close the Matplotlib window when you're done
     plt.close()
     
-    
 
+# Body_part names (in the future it will be obtained from a config file)
+bp_names = {'nose': 'snout',
+                    'head': 'head',
+                    'body': 'body',
+                    'v_1': 'upperleftlow',
+                    'v_2': 'upperrightlow',
+                    'v_3': 'lowerrightlow',
+                    'v_4': 'lowerleftlow',                   
+                    'v_5': 'upperlefthigh',
+                    'v_6': 'upperrighthigh',
+                    'v_7': 'lowerrighthigh',
+                    'v_8': 'lowerlefthigh',
+                    'obj_1_center': 'leftobjectcenter',
+                    'obj_1_edge': 'leftobjectedge',
+                    'obj_2_center': 'rightobjectcenter',
+                    'obj_2_edge': 'tightobjectedge'}
+
+# bp_names = {'nose': 'nose',
+#                     'head': 'head_centre',
+#                     'body': 'body_centre',
+#                     'v_1': 'v_1',
+#                     'v_2': 'v_2',
+#                     'v_3': 'v_3',
+#                     'v_4': 'v_4',                   
+#                     'v_5': 'v_5',
+#                     'v_6': 'v_6',
+#                     'v_7': 'v_7',
+#                     'v_8': 'v_8',
+#                     'obj_1_center': 'g_1_tampa',
+#                     'obj_1_edge': 'g_1_base',
+#                     'obj_2_center': 'g_2_tampa',
+#                     'obj_2_edge': 'g_2_base'}
 
 # SET parameter values
 conf_threshold = 0.95
 std_threshold = 0.5
-fps = 24
+fps = 30
 prev_vertex_position = np.zeros((8,2))
+check_video_fps = True # Uses the video FPS (it is necessary to have the trial video at the se folder)
+max_trial_duration = 5 # In minutes
+
+# box_length
+maze_info_pixel = dict()
+maze_info_pixel['box_length'] = (50,50) # (long-side, short-side in cm)
+# object_diameter
+maze_info_pixel['obj_diameter'] = 8 # in cm
+# Length of outer layer of objects 
+maze_info_pixel['outer_obj_layer_cm'] = 1 # in cm
 
 # CREATE A DATA FRAME TO ORGANIZE THE RSULTS FOR ALL THE TRIALS
 trial_info = pd.DataFrame(columns=['ID','Group','Day', 'Distance', 'Av_speed'])
@@ -119,33 +175,40 @@ filename = select_file(multiple=True)
 
 # STEP 2 --> LOOP FOR EACH FILE
 for it in range(len(filename)):
-            
+    
+    # STEP 2.1 - CHECK THE VIDEO FPS
+    if check_video_fps is True: 
+        # Extract the video fps based on the H5 filename
+        fps = get_video_fps(filename[it])
+                    
     # STEP 3 --> LOAD FILE AND RECREATE THE MAZE
     # Load the file
     df = pd.read_hdf(filename[it])
     # Fix camera shaking
-    new_df = df_fix_camera_shaking(df)
+    df = df_fix_camera_shaking(df, bp_reference_str=bp_names['v_1'])
+    # Exclude frames outside of maximum trial duration
+    df = exclude_f_past_duration(df, trial_duration=max_trial_duration, fps=fps)
     # Get each hole position
-    position_each_vertex = get_vertex_positions(df, prev_vertex_position=prev_vertex_position) 
+    position_each_vertex = get_vertex_positions(df, bp_names, prev_vertex_position=prev_vertex_position) 
     prev_vertex_position = position_each_vertex # UPDATE THE HOLE POSITION IN CASE OF AN ERROR
     # Get the maze centroid
     centroid_coords = centroid_inference(position_each_vertex)    
     # Get the maze coordinates in pixel
-    maze_info_pixel = maze_recreation(position_each_vertex, 10, 5, 60)
+    maze_info_pixel = maze_recreation(maze_info_pixel, position_each_vertex, 10, 5, 60)
     # Recreate the maze quadrants
     quadrant_dict, quadrant_dict_list = maze_quadrants(maze_info_pixel, [], centroid_coords, position_each_vertex, plot_frame=False, title='Nose', show=True, recreate_maze=False)
     # Model the objects
-    maze_info_pixel, maze_info_pixel_list = model_objects(df, conf_threshold, maze_info_pixel, centroid_coords, position_each_vertex)
+    maze_info_pixel, maze_info_pixel_list = model_objects(df, bp_names, conf_threshold, maze_info_pixel, centroid_coords, position_each_vertex, outer_obj_layer_cm=maze_info_pixel['outer_obj_layer_cm'])
     
     # STEP 3.1 --> GET THE NOSE AND HEAD COORD AND PROCESS IT
     # Get the coordinates for a specific body part
-    nose_coord = df.xs('nose', level='bodyparts', axis=1).to_numpy()  
+    nose_coord = df.xs(bp_names['nose'], level='bodyparts', axis=1).to_numpy()  
     # Fix coordinates inconsistencies based on confidence interval
     body_part_matrix_nose = fix_frames_confidence(nose_coord,conf_threshold)  
     ## OLD FUNCTION --> Fix coordinates inconsistencies based on (x,y) diff standard deviation
     # body_part_matrix_nose = fix_frames_diff(body_part_matrix_nose,std_threshold)
     # Get the coordinates for a specific body part
-    head_coord = df.xs('head_centre', level='bodyparts', axis=1).to_numpy()  
+    head_coord = df.xs(bp_names['head'], level='bodyparts', axis=1).to_numpy()  
     # Fix coordinates inconsistencies based on confidence interval
     body_part_matrix_head = fix_frames_confidence(head_coord,conf_threshold)  
     ## OLD FUNCTION --> Fix coordinates inconsistencies based on (x,y) diff standard deviation
@@ -166,8 +229,9 @@ for it in range(len(filename)):
     # Get the object exploration vector (throughout time)
     obj_exploration, obj_exp_parameters = get_obj_exploration(bp_pos_on_maze,head_angle, maze_info_pixel, body_part_matrix_nose, body_part_matrix_head, centroid_coords, position_each_vertex, fps=fps)
     
-    video_file = select_file(multiple = True)
-    plot_video_obj_exploration_grab(video_file, obj_exploration)
+    #video_file = select_file(multiple = True)
+    #plot_video_obj_exploration_grab(video_file, obj_exploration)
+    plot_video_obj_exploration(body_part_matrix_nose, body_part_matrix_head, df, centroid_coords, position_each_vertex, maze_info_pixel, obj_exploration)
     
     ratio_1_total = obj_exp_parameters['ratio_1_total']
     ratio_2_total = obj_exp_parameters['ratio_2_total']
@@ -183,7 +247,7 @@ for it in range(len(filename)):
     
     # STEP 6.1 --> GET THE BODY CENTRE COORD AND PROCESS IT
     # Get the coordinates for a specific body part
-    body_centre_coord = df.xs('body_centre', level='bodyparts', axis=1).to_numpy()  
+    body_centre_coord = df.xs(bp_names['body'], level='bodyparts', axis=1).to_numpy()  
     # Fix coordinates inconsistencies based on confidence interval
     body_part_matrix_body_centre = fix_frames_confidence(body_centre_coord,conf_threshold)
     

@@ -108,6 +108,7 @@ def fix_frames_diff(body_part_matrix,std_threshold):
 
 # Create a moving window to eliminate quick variations of the bp
 def filter_bp_pos_on_maze(bp_pos_on_maze, method_used='complete', win=3, mov_sec=None, fps=30):
+    # win is the time threshold value between differences to be considered a real diference (in seconds)
     if method_used == 'complete':
         # Create the return value
         bp_pos_on_maze_filtered = bp_pos_on_maze
@@ -122,13 +123,18 @@ def filter_bp_pos_on_maze(bp_pos_on_maze, method_used='complete', win=3, mov_sec
             #mask = np.array(np.where((b <= win) & (b > 1))) # mask to indicate where to change BO TÁ AQUI
             
             for ii in mask:
-                idx = ii+1 # Account for diff function
-                first = a[idx]
-                # Make sure the last index won't surpass the last value in a
-                if idx+(b[ii]-1) < len(a):
-                    last = np.array(a[idx+(b[ii]-1)])
-                else:
-                    last = np.array(len(a))
+                idx = ii # Account for diff function
+                first = a[idx]+1
+                last = a[idx+1]-1
+                # # Make sure the last index won't surpass the last value in a
+                # if idx+(b[ii]-1) < len(a):
+                #     last = np.array(a[idx+(b[ii]-1)])
+                # else:
+                #     last = np.array(a[-1])
+                # if idx+(b[ii]-1) < len(a):
+                #     last = np.array(a[idx+(b[ii]-1)])
+                # else:
+                #     last = np.array(len(a))
               
                 #print(idx)
                 #print(a[idx])
@@ -251,3 +257,17 @@ def df_fix_camera_shaking(df,bp_reference_str='v_1'):
     
     # Return fixed df
     return df
+
+
+def exclude_f_past_duration(df, trial_duration=5, fps=30):
+    # Calc the max duration
+    max_duration = trial_duration * 60 * round(fps)
+    # Get the data frame length
+    df_length = df.shape[0]
+    
+    # Check if the real trial duration is higher than the expected trial duration
+    if df_length > max_duration:
+        # Exclude the elements that surpass the trial duration
+        corrected_df = df.drop(np.arange(max_duration,df_length))
+    
+    return corrected_df

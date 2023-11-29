@@ -35,8 +35,9 @@ prev_hole_position = np.empty((12,2))
 latency_mode = 'escape' # 'escape' or 'find'   
 trial_duration=3 # Trial duration in minutes
 prob=False # Bool (if it is a prob trial or not)
-target=7
-target_quadrant=3
+target=1
+target_quadrant=1
+exp_min_time = 0.5 # Seconds
 
 # CREATE A DATA FRAME TO ORGANIZE THE RSULTS FOR ALL THE TRIALS
 trial_info = pd.DataFrame(columns=['Box','ID','Group','Day','Trial','Beginning', 'End', 'Latency', 'P_error', 'S_error',
@@ -99,8 +100,8 @@ for it in range(len(filename)):
         
     
     # STEP 5 --> GET PRIMARY AND SECUNDARY ERRORS and STRATEGY USED
-    p_errors, s_errors = get_p_s_errors(bp_pos_on_maze_filtered,target=target)[0:2]
-    strategy = get_the_strategy(bp_pos_on_maze_filtered, target=target)
+    p_errors, s_errors = get_p_s_errors(bp_pos_on_maze_filtered,target=target, exp_min_time=exp_min_time, fps=fps)[0:2]
+    strategy = get_the_strategy(bp_pos_on_maze_filtered, target=target,exp_min_time=exp_min_time, fps=fps)
     
     # STEP 7 --> GET THE TOTAL DISTANCE, INSTANT SPEED AND AVERAGE SPEED
     total_distance = get_distance(body_part_matrix_body_centre, maze_info_pixel)[1]

@@ -184,5 +184,22 @@ points_to_check = np.asarray([(0.5, 0.5), (0.2, 0.2), (1.8, 0.8)])
 results = are_points_inside_polygon(polygon_points, points_to_check)
 print(results)  # Output: [True, True, False]
 
+
+# Function to get a linear equation from 4 points and then get y from given x
+def linear_function(x1, y1, x2, y2):
+    # Calculate the slope
+    slope = (y2 - y1) / (x2 - x1)
+
+    # Calculate the y-intercept (b) using one of the points
+    b = y1 - slope * x1
+
+    # Define the linear function
+    def f(x):
+        return slope * x + b
+
+    return f
+
+
+
       
  

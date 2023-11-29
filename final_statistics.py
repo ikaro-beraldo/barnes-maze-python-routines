@@ -37,8 +37,8 @@ def plot_stacked_bar(x, weight_counts, n_elements, width=0.5, ax=None):
 
 
 # Open file
-filename = "E:\\Barnes Maze - Mestrad\\Resultados DLC\\Final_results.h5"
-save_results = "E:\\Barnes Maze - Mestrad\\Resultados DLC\\"
+filename = "C:\\Users\\ikaro\\Downloads\\Final_results.h5"
+save_results = "E:\\Barnes Maze - Mestrad\\Resultados DLC - Barnes\\"
 trial_info = pd.read_hdf(filename, key='trial_info')  
 
 
